@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+/* Theme variables — default is dark */
+:root {
+  --bg-primary: #111827;
+  --bg-card: #1f2937;
+  --bg-input: #111827;
+  --text-primary: #f3f4f6;
+  --text-secondary: #9ca3af;
+  --text-muted: #6b7280;
+  --border-color: #374151;
+}
+
+.light {
+  --bg-primary: #f9fafb;
+  --bg-card: #ffffff;
+  --bg-input: #f3f4f6;
+  --text-primary: #111827;
+  --text-secondary: #4b5563;
+  --text-muted: #9ca3af;
+  --border-color: #e5e7eb;
+}
+
+body {
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.font-mono {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+}
+
+/*
+ * Theme overrides — remap Tailwind's hardcoded gray classes in light mode.
+ * This approach means ALL existing bg-gray-900/800/700 and text-gray-100/300/400
+ * respond to the theme without touching every component.
+ */
+.light .bg-gray-900 { background-color: #f9fafb !important; }
+.light .bg-gray-800 { background-color: #ffffff !important; }
+.light .bg-gray-850 { background-color: #f3f4f6 !important; }
+.light .bg-gray-700 { background-color: #e5e7eb !important; }
+.light .bg-gray-900\/50 { background-color: #f3f4f6 !important; }
+
+.light .text-gray-100 { color: #111827 !important; }
+.light .text-gray-300 { color: #374151 !important; }
+.light .text-gray-400 { color: #6b7280 !important; }
+.light .text-gray-500 { color: #9ca3af !important; }
+.light .text-gray-600 { color: #6b7280 !important; }
+.light .text-white { color: #111827 !important; }
+
+.light .border-gray-700 { border-color: #e5e7eb !important; }
+.light .border-gray-600 { border-color: #d1d5db !important; }
+.light .border-gray-700\/50 { border-color: #e5e7eb !important; }
+
+/* Cards get shadows in light mode */
+.light .rounded-lg { box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+
+/* Keep header distinct */
+.light header.bg-gray-800 { background-color: #ffffff !important; border-bottom-color: #e5e7eb !important; }
+
+/* Inputs */
+.light select, .light input[type="number"], .light input[type="text"] {
+  background-color: #f9fafb !important;
+  border-color: #d1d5db !important;
+  color: #111827 !important;
+}
+
+/* Print styles for report */
+@media print {
+  .no-print { display: none !important; }
+  body { background: white !important; color: black !important; }
+}
