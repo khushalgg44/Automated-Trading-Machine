@@ -1,0 +1,11 @@
+.env
+.tokens
+__pycache__/
+logs/
+*.pyc
+node_modules/
+state.json
+watchlist.json
+frontend/dist/
+frontend/node_modules/
+.pytest_cache/

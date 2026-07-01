@@ -7,12 +7,30 @@ interface Props {
   onToggleTheme: () => void;
   recentEventCount: number;
   hasRejection: boolean;
+  demoActive: boolean;
+  onToggleDemo: () => void;
 }
 
-export default function Header({ theme, onToggleTheme, recentEventCount, hasRejection }: Props) {
+interface ZerodhaStatus {
+  data_source: string;
+  configured_source: string;
+  connected: boolean;
+  token_valid: boolean;
+}
+
+export default function Header({ theme, onToggleTheme, recentEventCount, hasRejection, demoActive, onToggleDemo }: Props) {
   const { data, error } = usePolling<HealthStatus>("/api/health", 3000);
+  const { data: zerodhaStatus } = usePolling<ZerodhaStatus>("/api/auth/zerodha/status", 5000);
 
   const isHealthy = data?.status === "ok" && !error;
+  const isZerodhaMode = zerodhaStatus?.configured_source === "zerodha";
+  const zerodhaConnected = zerodhaStatus?.connected === true;
+
+  const handleZerodhaLogin = async () => {
+    const res = await fetch("/api/auth/zerodha/login-url");
+    const { url } = await res.json();
+    window.open(url, "_blank");
+  };
 
   const scrollToEventLog = () => {
     document.getElementById("event-log-section")?.scrollIntoView({ behavior: "smooth" });
@@ -27,13 +45,43 @@ export default function Header({ theme, onToggleTheme, recentEventCount, hasReje
         <span className="text-xs text-gray-400 bg-gray-700 px-2 py-0.5 rounded">
           PAPER
         </span>
+        {/* Zerodha badge */}
+        {isZerodhaMode && (
+          zerodhaConnected ? (
+            <span className="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-800">
+              ✓ Zerodha
+            </span>
+          ) : (
+            <button
+              onClick={handleZerodhaLogin}
+              className="text-xs bg-orange-900/40 text-orange-400 px-2 py-0.5 rounded border border-orange-800 hover:bg-orange-900/60"
+            >
+              ⚠️ Login
+            </button>
+          )
+        )}
+        {/* Show fallback indicator */}
+        {isZerodhaMode && !zerodhaConnected && zerodhaStatus?.data_source === "mock" && (
+          <span className="text-xs text-yellow-400">Mock (Zerodha unavailable)</span>
+        )}
+        {/* Demo button */}
+        <button
+          onClick={onToggleDemo}
+          className={`text-xs font-bold px-3 py-1 rounded transition-all ${
+            demoActive
+              ? "bg-red-600 text-white animate-pulse border border-red-400"
+              : "bg-green-600 text-white hover:bg-green-500"
+          }`}
+        >
+          {demoActive ? "■ Stop Demo" : "▶ Demo"}
+        </button>
       </div>
       <div className="flex items-center gap-3 text-sm">
         <button
           onClick={onToggleTheme}
           className="p-1.5 rounded hover:bg-gray-700 transition-colors text-gray-400 hover:text-white"
           title={`Switch to ${theme === "dark" ? "light" : "dark"} mode (T)`}
-          aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} mode`}
+          aria-label="Toggle theme"
         >
           {theme === "dark" ? (
             <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -46,7 +94,6 @@ export default function Header({ theme, onToggleTheme, recentEventCount, hasReje
           )}
         </button>
         <ShortcutHelp />
-        <span className="text-xs text-gray-500 hidden lg:inline">Ctrl+K</span>
 
         {/* Notification badge */}
         {recentEventCount > 0 && (
@@ -69,9 +116,6 @@ export default function Header({ theme, onToggleTheme, recentEventCount, hasReje
         <span className={isHealthy ? "text-green-400" : "text-red-400"}>
           {error ? "Disconnected" : isHealthy ? "Live" : "Connecting..."}
         </span>
-        {data?.generator_running && (
-          <span className="text-gray-500 ml-1">• Ticking</span>
-        )}
       </div>
     </header>
   );

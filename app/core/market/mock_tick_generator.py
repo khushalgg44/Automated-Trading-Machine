@@ -113,8 +113,6 @@ class MockTickGenerator:
 
     async def _run(self) -> None:
         """Iterate through candles and emit ticks. Loops indefinitely."""
-        delay = settings.tick_interval_ms / 1000.0
-
         while self._running:
             num_candles = len(next(iter(self._candles.values())))
 
@@ -136,7 +134,8 @@ class MockTickGenerator:
                     }
                     await event_bus.publish(Events.TICK_RECEIVED, tick_payload)
 
-                await asyncio.sleep(delay)
+                # Read delay each iteration so demo mode changes take effect
+                await asyncio.sleep(settings.tick_interval_ms / 1000.0)
 
             # Session complete — regenerate fresh candles and loop
             self._prepare_candles()

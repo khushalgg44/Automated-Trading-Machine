@@ -13,9 +13,10 @@ interface Props {
   strategies: string[];
   onOpenReport?: () => void;
   onOpenArchDocs?: () => void;
+  onToggleDemo?: () => void;
 }
 
-export default function CommandPalette({ isOpen, onClose, watchlist, strategies, onOpenReport, onOpenArchDocs }: Props) {
+export default function CommandPalette({ isOpen, onClose, watchlist, strategies, onOpenReport, onOpenArchDocs, onToggleDemo }: Props) {
   const [query, setQuery] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -40,6 +41,8 @@ export default function CommandPalette({ isOpen, onClose, watchlist, strategies,
     { id: "export", label: "Export Trades", action: () => { window.open("/api/export/trades", "_blank"); onClose(); } },
     { id: "report", label: "Generate Report", action: () => { if (onOpenReport) onOpenReport(); else onClose(); } },
     { id: "architecture", label: "Architecture Docs", action: () => { if (onOpenArchDocs) onOpenArchDocs(); else onClose(); } },
+    { id: "demo-start", label: "Start Demo", action: () => { if (onToggleDemo) onToggleDemo(); onClose(); } },
+    { id: "demo-stop", label: "Stop Demo", action: () => { fetch("/api/demo/stop", { method: "POST" }); onClose(); } },
     { id: "backtest", label: "Run Backtest", action: () => { document.querySelector('[data-section="backtest"]')?.scrollIntoView({ behavior: "smooth" }); onClose(); } },
   ];
 

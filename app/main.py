@@ -8,7 +8,7 @@ from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, HTMLResponse
 from pydantic import BaseModel
 
 from app.core.logger import get_logger, get_recent_logs
@@ -39,6 +39,7 @@ async def lifespan(app: FastAPI):
     """Startup/shutdown lifecycle."""
     app.state.session_start = datetime.now().isoformat()
     app.state.data_source = settings.data_source
+    app.state.kite_connector = None
 
     # Choose data source
     if settings.data_source == "zerodha":
@@ -47,10 +48,15 @@ async def lifespan(app: FastAPI):
         if token and is_token_valid():
             from app.core.market.kite_connector import KiteTickerConnector
             app.state.kite_connector = KiteTickerConnector(
-                settings.zerodha_api_key, token, settings.symbols
+                settings.zerodha_api_key, token
             )
             await app.state.kite_connector.start()
-            logger.info("Zerodha Kite WebSocket started.")
+            if app.state.kite_connector.is_running:
+                logger.info("Zerodha Kite WebSocket started.")
+            else:
+                logger.warning("Kite connector failed to start. Falling back to mock.")
+                app.state.data_source = "mock"
+                await mock_tick_generator.start()
         else:
             logger.warning("Zerodha token invalid/missing. Falling back to mock data.")
             app.state.data_source = "mock"
@@ -62,11 +68,11 @@ async def lifespan(app: FastAPI):
     await strategy_registry.start("rsi_mean_reversion")
     event_bus.log_custom(Events.STRATEGY_STARTED, "ema_cross")
     event_bus.log_custom(Events.STRATEGY_STARTED, "rsi_mean_reversion")
-    print(f"[AlgoTradeX] Data source: {app.state.data_source}. Strategies active.")
+    logger.info(f"Data source: {app.state.data_source}. Strategies active.")
     yield
     # Shutdown
     await strategy_registry.stop_all()
-    if app.state.data_source == "zerodha" and hasattr(app.state, "kite_connector"):
+    if app.state.kite_connector:
         await app.state.kite_connector.stop()
     else:
         await mock_tick_generator.stop()
@@ -673,9 +679,88 @@ async def zerodha_login_url():
     return {"url": generate_login_url()}
 
 
+@app.get("/auth/zerodha/callback")
+async def zerodha_callback(request_token: str, action: str = "login"):
+    """Zerodha redirects here after user login. Exchange token and redirect to dashboard."""
+    from app.core.auth.zerodha_auth import generate_login_url
+
+    if not request_token:
+        return HTMLResponse("<h2>Error: No request_token received</h2>", status_code=400)
+
+    # Generate session directly using raw requests (bypass kiteconnect SSL issues)
+    try:
+        import hashlib
+        import requests
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        # Compute checksum: SHA256(api_key + request_token + api_secret)
+        checksum = hashlib.sha256(
+            (settings.zerodha_api_key + request_token + settings.zerodha_api_secret).encode()
+        ).hexdigest()
+
+        # Call Kite API directly
+        resp = requests.post(
+            "https://api.kite.trade/session/token",
+            data={
+                "api_key": settings.zerodha_api_key,
+                "request_token": request_token,
+                "checksum": checksum,
+            },
+            verify=False,
+        )
+
+        resp_data = resp.json()
+        if resp_data.get("status") == "error":
+            raise Exception(resp_data.get("message", "Unknown error"))
+
+        data = resp_data["data"]
+        access_token = data["access_token"]
+    except Exception as e:
+        error_msg = str(e)
+        return HTMLResponse(
+            f'<html><body style="font-family:system-ui;padding:40px;background:#111827;color:#f87171;">'
+            f'<h2>Session generation failed</h2><pre>{error_msg}</pre>'
+            f'<p style="color:#9ca3af;">API Key: {settings.zerodha_api_key}</p>'
+            f'<p style="color:#9ca3af;">Request Token: {request_token[:10]}...</p>'
+            f'<a href="{generate_login_url()}" style="color:#60a5fa;">Try again</a>'
+            f'</body></html>',
+            status_code=400,
+        )
+
+    # Store token
+    from app.core.auth.zerodha_auth import _store_token
+    _store_token(access_token)
+
+    # Start Kite WebSocket connector with new token
+    from app.core.market.kite_connector import KiteTickerConnector
+
+    # Stop mock generator if running
+    if mock_tick_generator.is_running:
+        await mock_tick_generator.stop()
+
+    # Start live connector
+    app.state.kite_connector = KiteTickerConnector(settings.zerodha_api_key, access_token)
+    await app.state.kite_connector.start()
+    app.state.data_source = "zerodha"
+    event_bus.log_custom("ZERODHA_CONNECTED", f"Logged in as {data.get('user_name', '')}")
+
+    # Return HTML that redirects to dashboard
+    return HTMLResponse("""
+    <html>
+    <head><title>AlgoTradeX — Login Successful</title></head>
+    <body style="font-family:system-ui;text-align:center;padding:60px;background:#111827;color:#f3f4f6;">
+        <h2 style="color:#4ade80;">✓ Zerodha Login Successful!</h2>
+        <p>Redirecting to dashboard...</p>
+        <script>setTimeout(function(){ window.location.href = 'http://localhost:5173'; }, 2000);</script>
+    </body>
+    </html>
+    """)
+
+
 @app.post("/auth/zerodha/callback")
-async def zerodha_callback(body: dict):
-    """Exchange request_token for access_token."""
+async def zerodha_callback_post(body: dict):
+    """Exchange request_token for access_token (API call variant)."""
     from app.core.auth.zerodha_auth import generate_session
     request_token = body.get("request_token", "")
     if not request_token:
@@ -690,9 +775,11 @@ async def zerodha_callback(body: dict):
 async def zerodha_status():
     """Check Zerodha connection status."""
     from app.core.auth.zerodha_auth import is_token_valid
+    kite_running = app.state.kite_connector.is_running if app.state.kite_connector else False
     return {
         "data_source": getattr(app.state, "data_source", "mock"),
-        "connected": is_token_valid(),
+        "configured_source": settings.data_source,
+        "connected": kite_running,
         "token_valid": is_token_valid(),
     }
 
@@ -758,3 +845,69 @@ async def get_report_summary():
 async def get_logs():
     """Return the last 100 lines from the log file."""
     return get_recent_logs(100)
+
+
+# ─── Demo Mode Endpoints ───────────────────────────────────────────────────────
+
+_DEMO_ACTIVE = False
+_NORMAL_TICK_INTERVAL = settings.tick_interval_ms
+
+
+@app.post("/demo/start")
+async def start_demo():
+    """Start demo mode — fast ticks, quick signals, clean slate."""
+    global _DEMO_ACTIVE
+
+    # Reset portfolio
+    portfolio_manager.reset()
+    event_bus.clear_log()
+
+    # Speed up ticks (50ms = 20 ticks/sec with 8 stocks = 160 ticks/sec)
+    settings.tick_interval_ms = 50
+
+    # Reduce strategy warmup for fast signal generation
+    ema = strategy_registry.get("ema_cross")
+    if ema:
+        ema.fast_period = 2
+        ema.slow_period = 4
+
+    rsi = strategy_registry.get("rsi_mean_reversion")
+    if rsi:
+        rsi.period = 5
+
+    # Ensure strategies are running
+    await strategy_registry.start("ema_cross")
+    await strategy_registry.start("rsi_mean_reversion")
+
+    _DEMO_ACTIVE = True
+    event_bus.log_custom("DEMO_STARTED", "Demo mode active — 10x speed, quick signals")
+    return {"status": "demo_started", "message": "Demo mode active — fast ticks, quick signals"}
+
+
+@app.post("/demo/stop")
+async def stop_demo():
+    """Stop demo mode — return to normal speed and default parameters."""
+    global _DEMO_ACTIVE
+
+    # Restore normal tick speed
+    settings.tick_interval_ms = _NORMAL_TICK_INTERVAL
+
+    # Restore strategy defaults
+    ema = strategy_registry.get("ema_cross")
+    if ema:
+        ema.fast_period = 3
+        ema.slow_period = 7
+
+    rsi = strategy_registry.get("rsi_mean_reversion")
+    if rsi:
+        rsi.period = 14
+
+    _DEMO_ACTIVE = False
+    event_bus.log_custom("DEMO_STOPPED", "Returned to normal speed")
+    return {"status": "demo_stopped", "message": "Returned to normal speed"}
+
+
+@app.get("/demo/status")
+async def demo_status():
+    """Check if demo mode is active."""
+    return {"active": _DEMO_ACTIVE}

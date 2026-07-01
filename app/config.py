@@ -1,6 +1,15 @@
-"""Application configuration — all tunables in one place."""
+"""Application configuration — all tunables in one place.
 
+Loads from environment variables (prefix ALGOTRADEX_) and .env file.
+"""
+
+import os
+from dotenv import load_dotenv
 from pydantic import BaseModel
+
+# Load .env file from project root
+_env_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".env")
+load_dotenv(_env_path)
 
 
 class Settings(BaseModel):
@@ -28,16 +37,15 @@ class Settings(BaseModel):
     state_file: str = "state.json"
     auto_save_interval_s: int = 30
 
-    # Zerodha stub (placeholder for real OAuth later)
-    kite_api_key: str = "mock_api_key"
-    kite_access_token: str = "mock_access_token"
-
     # Data source: "mock" or "zerodha"
-    data_source: str = "mock"
+    data_source: str = os.getenv("ALGOTRADEX_DATA_SOURCE", "mock")
 
     # Zerodha credentials (from env vars)
-    zerodha_api_key: str = ""
-    zerodha_api_secret: str = ""
+    zerodha_api_key: str = os.getenv("ALGOTRADEX_ZERODHA_API_KEY", "")
+    zerodha_api_secret: str = os.getenv("ALGOTRADEX_ZERODHA_API_SECRET", "")
+
+    # Token encryption key (Fernet)
+    token_encryption_key: str = os.getenv("ALGOTRADEX_TOKEN_ENCRYPTION_KEY", "")
 
     # Risk
     max_position_pct: float = 0.20  # max 20% of capital in a single position

@@ -38,6 +38,7 @@ export default function App() {
   // Notification badge state
   const [recentEventCount, setRecentEventCount] = useState(0);
   const [hasRejection, setHasRejection] = useState(false);
+  const [demoActive, setDemoActive] = useState(false);
   const lastSeenCountRef = useRef(0);
   const notifPermissionRef = useRef(false);
 
@@ -64,6 +65,24 @@ export default function App() {
 
   // Strategy names for command palette
   const strategies = ["ema_cross", "rsi_mean_reversion", "bollinger_bands"];
+
+  // Poll demo status
+  const { data: demoData } = usePolling<{ active: boolean }>("/api/demo/status", 3000);
+  useEffect(() => {
+    if (demoData) setDemoActive(demoData.active);
+  }, [demoData]);
+
+  const toggleDemo = async () => {
+    if (demoActive) {
+      await fetch("/api/demo/stop", { method: "POST" });
+      setDemoActive(false);
+    } else {
+      if (confirm("Start Demo Mode? This resets the portfolio and runs at 10x speed.")) {
+        await fetch("/api/demo/start", { method: "POST" });
+        setDemoActive(true);
+      }
+    }
+  };
 
   // Track new events for badge + browser notifications (rejections only)
   useEffect(() => {
@@ -125,6 +144,11 @@ export default function App() {
       return;
     }
 
+    if (e.key === "d" || e.key === "D") {
+      toggleDemo();
+      return;
+    }
+
     if (e.key === " ") {
       e.preventDefault();
       strategies.forEach((s) => {
@@ -143,7 +167,7 @@ export default function App() {
     if (e.key === "1") setChartSymbolIndex(0);
     if (e.key === "2") setChartSymbolIndex(1);
     if (e.key === "3") setChartSymbolIndex(2);
-  }, [strategies, toggleTheme]);
+  }, [strategies, toggleTheme, toggleDemo]);
 
   useEffect(() => {
     window.addEventListener("keydown", handleKeyDown);
@@ -157,8 +181,15 @@ export default function App() {
         onToggleTheme={toggleTheme}
         recentEventCount={recentEventCount}
         hasRejection={hasRejection}
+        demoActive={demoActive}
+        onToggleDemo={toggleDemo}
       />
       <SessionStats />
+      {demoActive && (
+        <div className="bg-orange-900/50 border-b border-orange-700 px-4 py-1.5 text-center text-xs text-orange-300 font-mono animate-pulse">
+          🎬 DEMO MODE — 10x speed
+        </div>
+      )}
 
       <main className="max-w-7xl mx-auto px-4 py-6">
         {/* Top row: Portfolio + Watchlist + Strategies */}
@@ -226,6 +257,7 @@ export default function App() {
         strategies={strategies}
         onOpenReport={() => { setCmdPaletteOpen(false); setReportOpen(true); }}
         onOpenArchDocs={() => { setCmdPaletteOpen(false); setArchDocsOpen(true); }}
+        onToggleDemo={toggleDemo}
       />
       <ReportView isOpen={reportOpen} onClose={() => setReportOpen(false)} />
       <ArchitectureDocs isOpen={archDocsOpen} onClose={() => setArchDocsOpen(false)} />
