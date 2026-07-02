@@ -24,7 +24,7 @@ class EMACrossStrategy(BaseStrategy):
         self,
         fast_period: int = settings.ema_fast_period,
         slow_period: int = settings.ema_slow_period,
-        qty: int = 10,
+        qty: int = 5,
     ) -> None:
         super().__init__()
         self.fast_period = fast_period
@@ -36,6 +36,9 @@ class EMACrossStrategy(BaseStrategy):
         self._slow_ema: dict[str, float] = {}
         self._prev_fast_above: dict[str, bool | None] = {}
         self._tick_count: dict[str, int] = {}
+        # Track positions for stop-loss
+        self._entry_price: dict[str, float] = {}
+        self._stop_loss_pct: float = 0.005  # 0.5% stop-loss
 
     async def _on_start(self) -> None:
         event_bus.subscribe(Events.TICK_RECEIVED, self._handle_tick)
@@ -70,6 +73,19 @@ class EMACrossStrategy(BaseStrategy):
 
         self._tick_count[symbol] += 1
 
+        # Stop-loss check: if we have a position and it's losing > threshold, exit
+        if symbol in self._entry_price:
+            entry = self._entry_price[symbol]
+            loss_pct = (entry - price) / entry
+            if loss_pct >= self._stop_loss_pct:
+                del self._entry_price[symbol]
+                return Signal(
+                    direction=Signal.SELL,
+                    symbol=symbol,
+                    quantity=self.qty,
+                    reason=f"Stop-loss triggered ({loss_pct*100:.2f}% loss)",
+                )
+
         # Update EMAs
         self._fast_ema[symbol] = _ema(self._fast_ema[symbol], price, self.fast_period)
         self._slow_ema[symbol] = _ema(self._slow_ema[symbol], price, self.slow_period)
@@ -87,6 +103,7 @@ class EMACrossStrategy(BaseStrategy):
 
         # Crossover detection
         if fast_above and not prev:
+            self._entry_price[symbol] = price  # Track entry for stop-loss
             return Signal(
                 direction=Signal.BUY,
                 symbol=symbol,
@@ -94,6 +111,8 @@ class EMACrossStrategy(BaseStrategy):
                 reason=f"EMA{self.fast_period} crossed above EMA{self.slow_period}",
             )
         elif not fast_above and prev:
+            if symbol in self._entry_price:
+                del self._entry_price[symbol]
             return Signal(
                 direction=Signal.SELL,
                 symbol=symbol,

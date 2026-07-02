@@ -24,14 +24,14 @@ class Settings(BaseModel):
     tick_interval_ms: int = 100  # delay between ticks in mock mode
     speed_multiplier: float = 60.0  # 1 min candle replayed in 1 second
 
-    # EMA Cross strategy defaults
-    ema_fast_period: int = 3
-    ema_slow_period: int = 7
+    # EMA Cross strategy defaults (slower = fewer whipsaws)
+    ema_fast_period: int = 9
+    ema_slow_period: int = 21
 
-    # RSI Mean Reversion strategy defaults
+    # RSI Mean Reversion strategy defaults (wider thresholds = stronger signals only)
     rsi_period: int = 14
-    rsi_oversold: int = 30
-    rsi_overbought: int = 70
+    rsi_oversold: int = 25
+    rsi_overbought: int = 75
 
     # Persistence
     state_file: str = "state.json"

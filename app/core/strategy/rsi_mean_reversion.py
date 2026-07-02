@@ -20,7 +20,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         period: int = settings.rsi_period,
         oversold: int = settings.rsi_oversold,
         overbought: int = settings.rsi_overbought,
-        qty: int = 10,
+        qty: int = 5,
     ) -> None:
         super().__init__()
         self.period = period
@@ -32,6 +32,9 @@ class RSIMeanReversionStrategy(BaseStrategy):
         self._prices: dict[str, list[float]] = {}
         # Track last signal direction to avoid repeated signals
         self._last_signal: dict[str, str | None] = {}
+        # Stop-loss tracking
+        self._entry_price: dict[str, float] = {}
+        self._stop_loss_pct: float = 0.005
 
     async def _on_start(self) -> None:
         event_bus.subscribe(Events.TICK_RECEIVED, self._handle_tick)
@@ -56,6 +59,20 @@ class RSIMeanReversionStrategy(BaseStrategy):
         symbol = payload["symbol"]
         price = payload["ltp"]
 
+        # Stop-loss check
+        if symbol in self._entry_price:
+            entry = self._entry_price[symbol]
+            loss_pct = (entry - price) / entry
+            if loss_pct >= self._stop_loss_pct:
+                del self._entry_price[symbol]
+                self._last_signal[symbol] = None
+                return Signal(
+                    direction=Signal.SELL,
+                    symbol=symbol,
+                    quantity=self.qty,
+                    reason=f"Stop-loss triggered ({loss_pct*100:.2f}% loss)",
+                )
+
         # Accumulate prices
         if symbol not in self._prices:
             self._prices[symbol] = []
@@ -78,6 +95,7 @@ class RSIMeanReversionStrategy(BaseStrategy):
         # Generate signals on threshold crossing
         if rsi < self.oversold and self._last_signal[symbol] != Signal.BUY:
             self._last_signal[symbol] = Signal.BUY
+            self._entry_price[symbol] = price
             return Signal(
                 direction=Signal.BUY,
                 symbol=symbol,
@@ -86,6 +104,8 @@ class RSIMeanReversionStrategy(BaseStrategy):
             )
         elif rsi > self.overbought and self._last_signal[symbol] != Signal.SELL:
             self._last_signal[symbol] = Signal.SELL
+            if symbol in self._entry_price:
+                del self._entry_price[symbol]
             return Signal(
                 direction=Signal.SELL,
                 symbol=symbol,

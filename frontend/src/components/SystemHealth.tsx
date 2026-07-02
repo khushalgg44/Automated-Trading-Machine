@@ -35,8 +35,9 @@ export default function SystemHealth() {
   if (!data) return null;
 
   const isStalled = data.ticks_per_second === 0 && !data.generator_running;
-  const statusColor = isStalled ? "bg-yellow-400" : "bg-green-400";
-  const statusText = isStalled ? "STALLED" : "OK";
+  const isZerodhaIdle = isStalled && data.total_ticks_processed > 0; // Had ticks before, now idle (market closed)
+  const statusColor = isStalled ? (isZerodhaIdle ? "bg-blue-400" : "bg-yellow-400") : "bg-green-400";
+  const statusText = isStalled ? (isZerodhaIdle ? "IDLE" : "STALLED") : "OK";
 
   return (
     <div className="fixed bottom-20 right-4 z-40">
