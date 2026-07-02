@@ -911,3 +911,144 @@ async def stop_demo():
 async def demo_status():
     """Check if demo mode is active."""
     return {"active": _DEMO_ACTIVE}
+
+
+# ─── Historical Data Endpoint ──────────────────────────────────────────────────
+
+@app.get("/historical/{symbol}")
+async def get_historical_data(symbol: str, from_date: str, to_date: str, interval: str = "day"):
+    """Fetch historical OHLC data from Zerodha for any stock and time period.
+    
+    Args:
+        symbol: NSE stock symbol (e.g., RELIANCE, TCS)
+        from_date: Start date (YYYY-MM-DD)
+        to_date: End date (YYYY-MM-DD)
+        interval: Candle interval - minute, 5minute, 15minute, 30minute, 60minute, day
+    """
+    import requests as req
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    from app.core.auth.zerodha_auth import load_token
+
+    token = load_token()
+    if not token:
+        raise HTTPException(status_code=401, detail="Zerodha token not available. Please login first.")
+
+    valid_intervals = ["minute", "5minute", "15minute", "30minute", "60minute", "day"]
+    if interval not in valid_intervals:
+        raise HTTPException(status_code=400, detail=f"Invalid interval. Use: {valid_intervals}")
+
+    # First, get instrument token for the symbol
+    headers = {"Authorization": f"token {settings.zerodha_api_key}:{token}"}
+
+    # Fetch instruments to find the token
+    try:
+        instruments_resp = req.get(
+            "https://api.kite.trade/instruments/NSE",
+            headers=headers,
+            verify=False,
+        )
+        if instruments_resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to fetch instruments from Zerodha")
+
+        import csv as csv_mod
+        reader = csv_mod.DictReader(io.StringIO(instruments_resp.text))
+        instrument_token = None
+        for row in reader:
+            if row["tradingsymbol"] == symbol.upper():
+                instrument_token = row["instrument_token"]
+                break
+
+        if not instrument_token:
+            raise HTTPException(status_code=404, detail=f"Symbol '{symbol}' not found on NSE")
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Instrument lookup failed: {str(e)}")
+
+    # Fetch historical data
+    try:
+        hist_url = f"https://api.kite.trade/instruments/historical/{instrument_token}/{interval}"
+        params = {"from": from_date, "to": to_date}
+
+        hist_resp = req.get(hist_url, headers=headers, params=params, verify=False)
+
+        if hist_resp.status_code != 200:
+            error_data = hist_resp.json() if hist_resp.headers.get("content-type", "").startswith("application/json") else {}
+            raise HTTPException(
+                status_code=hist_resp.status_code,
+                detail=error_data.get("message", f"Zerodha API error: {hist_resp.status_code}")
+            )
+
+        data = hist_resp.json()
+        candles_raw = data.get("data", {}).get("candles", [])
+
+        # Transform to our format: [timestamp, open, high, low, close, volume]
+        candles = []
+        for c in candles_raw:
+            candles.append({
+                "timestamp": c[0],
+                "open": c[1],
+                "high": c[2],
+                "low": c[3],
+                "close": c[4],
+                "volume": c[5],
+            })
+
+        return {
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "from": from_date,
+            "to": to_date,
+            "count": len(candles),
+            "candles": candles,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Historical data fetch failed: {str(e)}")
+
+
+@app.get("/historical/search/{query}")
+async def search_instruments(query: str):
+    """Search NSE instruments by name/symbol."""
+    import requests as req
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+    from app.core.auth.zerodha_auth import load_token
+
+    token = load_token()
+    if not token:
+        raise HTTPException(status_code=401, detail="Zerodha token not available")
+
+    headers = {"Authorization": f"token {settings.zerodha_api_key}:{token}"}
+
+    try:
+        resp = req.get("https://api.kite.trade/instruments/NSE", headers=headers, verify=False)
+        if resp.status_code != 200:
+            raise HTTPException(status_code=502, detail="Failed to fetch instruments")
+
+        import csv as csv_mod
+        reader = csv_mod.DictReader(io.StringIO(resp.text))
+        results = []
+        query_upper = query.upper()
+        for row in reader:
+            if query_upper in row["tradingsymbol"] or query_upper in row.get("name", "").upper():
+                results.append({
+                    "symbol": row["tradingsymbol"],
+                    "name": row.get("name", ""),
+                    "token": row["instrument_token"],
+                })
+                if len(results) >= 20:
+                    break
+
+        return results
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

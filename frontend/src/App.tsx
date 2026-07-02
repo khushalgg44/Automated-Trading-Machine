@@ -18,6 +18,7 @@ import SystemHealth from "./components/SystemHealth";
 import CommandPalette from "./components/CommandPalette";
 import ReportView from "./components/ReportView";
 import ArchitectureDocs from "./components/ArchitectureDocs";
+import HistoricalChart from "./components/HistoricalChart";
 import { usePolling } from "./hooks/usePolling";
 import { useTheme } from "./hooks/useTheme";
 import { Prices } from "./types";
@@ -212,6 +213,11 @@ export default function App() {
         {/* Candlestick Chart */}
         <div className="mb-4">
           <CandlestickChart watchlist={watchlist} chartSymbolIndex={chartSymbolIndex} />
+        </div>
+
+        {/* Historical Data Explorer */}
+        <div className="mb-4">
+          <HistoricalChart />
         </div>
 
         {/* Analytics */}
