@@ -69,6 +69,11 @@ async def lifespan(app: FastAPI):
     event_bus.log_custom(Events.STRATEGY_STARTED, "ema_cross")
     event_bus.log_custom(Events.STRATEGY_STARTED, "rsi_mean_reversion")
     logger.info(f"Data source: {app.state.data_source}. Strategies active.")
+
+    # Start Telegram bot
+    from app.core.notifications.telegram import start_telegram_bot
+    start_telegram_bot()
+
     yield
     # Shutdown
     await strategy_registry.stop_all()
@@ -1121,3 +1126,33 @@ async def search_instruments(query: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Strategy Builder Endpoint ─────────────────────────────────────────────────
+
+class StrategyBuilderRequest(BaseModel):
+    name: str
+    rules: list[dict]
+
+
+@app.post("/strategy-builder/create")
+async def create_custom_strategy(body: StrategyBuilderRequest):
+    """Create and start a custom strategy from builder rules."""
+    from app.core.strategy.custom_strategy import CustomStrategy
+
+    name = body.name.strip().lower().replace(" ", "_")
+    if not name:
+        raise HTTPException(status_code=400, detail="Strategy name required")
+
+    # Check if name already exists
+    if strategy_registry.get(name):
+        # Stop and replace
+        await strategy_registry.stop(name)
+
+    # Create and register
+    strategy = CustomStrategy(name=name, rules=body.rules, qty=5)
+    strategy_registry.register(strategy)
+    await strategy_registry.start(name)
+
+    event_bus.log_custom(Events.STRATEGY_STARTED, f"Custom strategy '{name}' created with {len(body.rules)} rules")
+    return {"status": "created", "name": name, "rules_count": len(body.rules)}
