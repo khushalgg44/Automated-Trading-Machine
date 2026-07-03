@@ -11,7 +11,6 @@ import EquityCurve from "./components/EquityCurve";
 import CandlestickChart from "./components/CandlestickChart";
 import ManualTrade from "./components/ManualTrade";
 import EventLog from "./components/EventLog";
-import OrderTape from "./components/OrderTape";
 import AnalyticsCard from "./components/AnalyticsCard";
 import BacktestPanel from "./components/BacktestPanel";
 import SystemHealth from "./components/SystemHealth";
@@ -170,7 +169,6 @@ export default function App() {
               <ManualTrade prices={prices} />
               <div className="lg:col-span-2"><EventLog events={events} /></div>
             </div>
-            <div className="mb-4"><OrderTape /></div>
           </>
         )}
 
@@ -207,7 +205,6 @@ export default function App() {
               <ManualTrade prices={prices} />
               <div className="lg:col-span-2"><EventLog events={events} /></div>
             </div>
-            <div className="mb-4"><OrderTape /></div>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
               <PositionsTable prices={prices} />
               <TradesTable />

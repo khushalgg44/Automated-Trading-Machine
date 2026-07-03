@@ -23,18 +23,35 @@ export default function SessionStats() {
       : "0";
 
   return (
-    <div className="bg-gray-850 border-b border-gray-700 px-4 py-2">
-      <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-x-6 gap-y-1 text-xs font-mono">
-        <Stat label="Session" value={duration} />
-        <Stat
-          label="P&L"
-          value={`${data.total_pnl >= 0 ? "+" : ""}${formatCurrency(data.total_pnl)}`}
-          color={data.total_pnl >= 0 ? "text-green-400" : "text-red-400"}
-        />
-        <Stat label="Trades" value={String(data.todays_trades)} />
-        <Stat label="Signals" value={String(data.total_signals)} />
-        <Stat label="Rejections" value={`${rejectionRate}%`} color={parseInt(rejectionRate) > 20 ? "text-red-400" : "text-gray-300"} />
-        <Stat label="Strategies" value={`${data.active_strategy_count}/${data.total_strategy_count}`} />
+    <div className="bg-gray-850 border-b border-gray-700 px-4 py-3">
+      <div className="max-w-7xl mx-auto flex flex-wrap items-center gap-x-8 gap-y-2 font-mono">
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Session:</span>
+          <span className="text-sm text-white font-semibold">{duration}</span>
+        </span>
+        {/* P&L — biggest element */}
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">P&L:</span>
+          <span className={`text-sm font-bold ${data.total_pnl >= 0 ? "text-green-400" : "text-red-400"}`}>
+            {data.total_pnl >= 0 ? "+" : ""}{formatCurrency(data.total_pnl)}
+          </span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Trades:</span>
+          <span className="text-sm text-white font-semibold">{data.todays_trades}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Signals:</span>
+          <span className="text-sm text-white font-semibold">{data.total_signals}</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Rejections:</span>
+          <span className={`text-sm font-semibold ${parseInt(rejectionRate) > 20 ? "text-red-400" : "text-white"}`}>{rejectionRate}%</span>
+        </span>
+        <span className="flex items-center gap-2">
+          <span className="text-sm text-gray-400">Strategies:</span>
+          <span className="text-sm text-white font-semibold">{data.active_strategy_count}/{data.total_strategy_count}</span>
+        </span>
       </div>
     </div>
   );
