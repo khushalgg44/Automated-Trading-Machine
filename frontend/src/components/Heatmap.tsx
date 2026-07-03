@@ -7,17 +7,17 @@ export default function Heatmap() {
   const { data: prices } = usePolling<Prices>("/api/prices", 2000);
   const { data: universe } = usePolling<string[]>("/api/universe", 30000);
   const [sessionStartPrices, setSessionStartPrices] = useState<Prices>({});
-  const [selectedSymbols, setSelectedSymbols] = useState<string[]>([]);
+  const [displaySymbols, setDisplaySymbols] = useState<string[]>([]);
   const [showAdd, setShowAdd] = useState(false);
+  const [customInput, setCustomInput] = useState("");
   const initialized = useRef(false);
 
-  // Capture session start prices on first data load
   useEffect(() => {
     if (prices && !initialized.current) {
       const symbols = Object.keys(prices);
       if (symbols.length > 0) {
         setSessionStartPrices({ ...prices });
-        setSelectedSymbols(symbols);
+        setDisplaySymbols(symbols);
         initialized.current = true;
       }
     }
@@ -25,17 +25,24 @@ export default function Heatmap() {
 
   if (!prices) return null;
 
-  const allSymbols = Object.keys(prices);
-  const displaySymbols = selectedSymbols.length > 0 ? selectedSymbols.filter(s => prices[s] !== undefined) : allSymbols;
-  const available = allSymbols.filter(s => !displaySymbols.includes(s));
+  const available = (universe || []).filter(s => !displaySymbols.includes(s));
 
   const addSymbol = (sym: string) => {
-    setSelectedSymbols([...displaySymbols, sym]);
+    const upper = sym.toUpperCase().trim();
+    if (upper && !displaySymbols.includes(upper)) {
+      setDisplaySymbols(prev => [...prev, upper]);
+    }
     setShowAdd(false);
+    setCustomInput("");
   };
 
   const removeSymbol = (sym: string) => {
-    setSelectedSymbols(displaySymbols.filter(s => s !== sym));
+    setDisplaySymbols(prev => prev.filter(s => s !== sym));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (customInput.trim()) addSymbol(customInput);
   };
 
   return (
@@ -51,17 +58,33 @@ export default function Heatmap() {
           >
             + Add
           </button>
-          {showAdd && available.length > 0 && (
-            <div className="absolute right-0 top-7 z-10 bg-gray-900 border border-gray-700 rounded shadow-lg py-1 min-w-[120px]">
-              {available.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => addSymbol(s)}
-                  className="block w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700 hover:text-white"
-                >
-                  {s}
-                </button>
-              ))}
+          {showAdd && (
+            <div className="absolute right-0 top-7 z-50 bg-gray-900 border border-gray-700 rounded shadow-2xl p-2 min-w-[180px]"
+              onClick={(e) => e.stopPropagation()}>
+              <form onSubmit={handleSubmit} className="flex gap-1 mb-2">
+                <input
+                  value={customInput}
+                  onChange={(e) => setCustomInput(e.target.value)}
+                  placeholder="Type symbol..."
+                  autoFocus
+                  className="flex-1 bg-gray-800 border border-gray-600 rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-blue-500"
+                />
+                <button type="submit" className="px-2 py-1 bg-green-600 rounded text-xs text-white font-bold">Add</button>
+              </form>
+              {available.length > 0 && (
+                <div className="max-h-32 overflow-y-auto">
+                  {available.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); addSymbol(s); }}
+                      className="block w-full text-left px-2 py-1 text-xs text-gray-300 hover:bg-gray-700 hover:text-white rounded cursor-pointer"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -69,15 +92,16 @@ export default function Heatmap() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         {displaySymbols.map((symbol) => {
           const currentPrice = prices[symbol];
-          if (!currentPrice) return null;
           const startPrice = sessionStartPrices[symbol] || currentPrice;
-          const change = startPrice > 0 ? ((currentPrice - startPrice) / startPrice) * 100 : 0;
+          const change = currentPrice && startPrice ? ((currentPrice - startPrice) / startPrice) * 100 : 0;
           const isPositive = change >= 0;
           const magnitude = Math.min(Math.abs(change), 5);
           const intensity = Math.round((magnitude / 5) * 100);
-          const bgColor = isPositive
-            ? `rgba(34, 197, 94, ${0.15 + (intensity / 100) * 0.6})`
-            : `rgba(239, 68, 68, ${0.15 + (intensity / 100) * 0.6})`;
+          const bgColor = currentPrice
+            ? isPositive
+              ? `rgba(34, 197, 94, ${0.15 + (intensity / 100) * 0.6})`
+              : `rgba(239, 68, 68, ${0.15 + (intensity / 100) * 0.6})`
+            : "rgba(107, 114, 128, 0.2)";
 
           return (
             <div
@@ -93,10 +117,10 @@ export default function Heatmap() {
               </button>
               <p className="text-xs font-bold text-white">{symbol}</p>
               <p className="text-sm font-mono text-gray-200 mt-0.5">
-                {formatCurrency(currentPrice)}
+                {currentPrice ? formatCurrency(currentPrice) : "—"}
               </p>
               <p className={`text-xs font-mono mt-0.5 ${isPositive ? "text-green-300" : "text-red-300"}`}>
-                {isPositive ? "+" : ""}{change.toFixed(2)}%
+                {currentPrice ? `${isPositive ? "+" : ""}${change.toFixed(2)}%` : "No data"}
               </p>
             </div>
           );

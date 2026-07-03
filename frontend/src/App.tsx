@@ -8,7 +8,6 @@ import TradesTable from "./components/TradesTable";
 import Watchlist from "./components/Watchlist";
 import StrategyStatus from "./components/StrategyStatus";
 import EquityCurve from "./components/EquityCurve";
-import CandlestickChart from "./components/CandlestickChart";
 import ManualTrade from "./components/ManualTrade";
 import EventLog from "./components/EventLog";
 import AnalyticsCard from "./components/AnalyticsCard";
@@ -46,7 +45,6 @@ const TABS: { id: TabId; label: string; icon: string }[] = [
 export default function App() {
   const [activeTab, setActiveTab] = useState<TabId>("dashboard");
   const [cmdPaletteOpen, setCmdPaletteOpen] = useState(false);
-  const [chartSymbolIndex, setChartSymbolIndex] = useState<number | undefined>(undefined);
   const [reportOpen, setReportOpen] = useState(false);
   const [archDocsOpen, setArchDocsOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -113,9 +111,9 @@ export default function App() {
     if (e.key === "d" || e.key === "D") { toggleDemo(); return; }
     if (e.key === " ") { e.preventDefault(); strategies.forEach((s) => { fetch(`/api/strategy/${s}/stop`, { method: "POST" }); }); return; }
     if (e.key === "r" || e.key === "R") { if (confirm("Reset portfolio?")) fetch("/api/reset-portfolio", { method: "POST" }); return; }
-    if (e.key === "1") setChartSymbolIndex(0);
-    if (e.key === "2") setChartSymbolIndex(1);
-    if (e.key === "3") setChartSymbolIndex(2);
+    if (e.key === "1") setActiveTab("dashboard");
+    if (e.key === "2") setActiveTab("charts");
+    if (e.key === "3") setActiveTab("analytics");
   }, [strategies, toggleTheme, toggleDemo]);
 
   useEffect(() => { window.addEventListener("keydown", handleKeyDown); return () => window.removeEventListener("keydown", handleKeyDown); }, [handleKeyDown]);
@@ -175,9 +173,6 @@ export default function App() {
         {/* ═══ CHARTS TAB ═══ */}
         {activeTab === "charts" && (
           <>
-            <div className="mb-4">
-              <CandlestickChart watchlist={watchlist} chartSymbolIndex={chartSymbolIndex} />
-            </div>
             <div className="mb-4"><HistoricalChart /></div>
           </>
         )}
@@ -216,7 +211,6 @@ export default function App() {
         {activeTab === "research" && (
           <>
             <div className="mb-4" data-section="backtest"><BacktestPanel /></div>
-            <div className="mb-4"><HistoricalChart /></div>
             <div className="mb-4"><StrategyBuilder /></div>
           </>
         )}
