@@ -913,6 +913,75 @@ async def demo_status():
     return {"active": _DEMO_ACTIVE}
 
 
+# ─── Correlation Matrix Endpoint ───────────────────────────────────────────────
+
+@app.get("/correlation")
+async def get_correlation():
+    """Compute Pearson correlation matrix between watchlist symbols using price history."""
+    import math
+
+    symbols = watchlist.symbols
+    history = price_cache.get_all_history(50)
+
+    # Only include symbols that have at least 10 prices
+    valid_symbols = [s for s in symbols if len(history.get(s, [])) >= 10]
+
+    if len(valid_symbols) < 2:
+        return {"symbols": valid_symbols, "matrix": [[1.0]] if valid_symbols else []}
+
+    def pearson(x: list[float], y: list[float]) -> float:
+        """Compute Pearson correlation coefficient."""
+        n = min(len(x), len(y))
+        if n < 2:
+            return 0.0
+        x = x[-n:]
+        y = y[-n:]
+        mean_x = sum(x) / n
+        mean_y = sum(y) / n
+        num = sum((xi - mean_x) * (yi - mean_y) for xi, yi in zip(x, y))
+        den_x = math.sqrt(sum((xi - mean_x) ** 2 for xi in x))
+        den_y = math.sqrt(sum((yi - mean_y) ** 2 for yi in y))
+        if den_x == 0 or den_y == 0:
+            return 0.0
+        return round(num / (den_x * den_y), 4)
+
+    matrix = []
+    for i, sym_i in enumerate(valid_symbols):
+        row = []
+        for j, sym_j in enumerate(valid_symbols):
+            if i == j:
+                row.append(1.0)
+            else:
+                corr = pearson(history[sym_i], history[sym_j])
+                row.append(corr)
+        matrix.append(row)
+
+    return {"symbols": valid_symbols, "matrix": matrix}
+
+
+# ─── Telegram Status Endpoint ──────────────────────────────────────────────────
+
+@app.get("/telegram/status")
+async def telegram_status():
+    """Check Telegram bot configuration status."""
+    import os
+    enabled = os.getenv("ALGOTRADEX_TELEGRAM_ENABLED", "false").lower() == "true"
+    token = os.getenv("ALGOTRADEX_TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.getenv("ALGOTRADEX_TELEGRAM_CHAT_ID", "")
+    configured = bool(token and chat_id)
+
+    if not token:
+        message = "Set ALGOTRADEX_TELEGRAM_BOT_TOKEN in .env to enable"
+    elif not chat_id:
+        message = "Set ALGOTRADEX_TELEGRAM_CHAT_ID in .env to enable"
+    elif not enabled:
+        message = "Set ALGOTRADEX_TELEGRAM_ENABLED=true in .env to activate"
+    else:
+        message = "Telegram notifications active"
+
+    return {"enabled": enabled, "configured": configured, "message": message}
+
+
 # ─── Historical Data Endpoint ──────────────────────────────────────────────────
 
 @app.get("/historical/{symbol}")

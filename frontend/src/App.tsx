@@ -19,6 +19,12 @@ import CommandPalette from "./components/CommandPalette";
 import ReportView from "./components/ReportView";
 import ArchitectureDocs from "./components/ArchitectureDocs";
 import HistoricalChart from "./components/HistoricalChart";
+import Heatmap from "./components/Heatmap";
+import PnLCalendar from "./components/PnLCalendar";
+import CorrelationMatrix from "./components/CorrelationMatrix";
+import TradeReplay from "./components/TradeReplay";
+import PortfolioComparison from "./components/PortfolioComparison";
+import StrategyBuilder from "./components/StrategyBuilder";
 import { usePolling } from "./hooks/usePolling";
 import { useTheme } from "./hooks/useTheme";
 import { Prices } from "./types";
@@ -210,19 +216,27 @@ export default function App() {
           <EquityCurve prices={prices} />
         </div>
 
+        {/* Heatmap */}
+        <div className="mb-4">
+          <Heatmap />
+        </div>
+
         {/* Candlestick Chart */}
         <div className="mb-4">
           <CandlestickChart watchlist={watchlist} chartSymbolIndex={chartSymbolIndex} />
         </div>
 
-        {/* Historical Data Explorer */}
-        <div className="mb-4">
-          <HistoricalChart />
+        {/* Analytics + Portfolio Comparison */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+          <div className="lg:col-span-2">
+            <AnalyticsCard />
+          </div>
+          <PortfolioComparison />
         </div>
 
-        {/* Analytics */}
+        {/* P&L Calendar */}
         <div className="mb-4">
-          <AnalyticsCard />
+          <PnLCalendar />
         </div>
 
         {/* Manual Trade + Event Log */}
@@ -231,6 +245,16 @@ export default function App() {
           <div className="lg:col-span-2">
             <EventLog events={events} />
           </div>
+        </div>
+
+        {/* Correlation Matrix (collapsible) */}
+        <div className="mb-4">
+          <CorrelationMatrix />
+        </div>
+
+        {/* Trade Replay (collapsible) */}
+        <div className="mb-4">
+          <TradeReplay />
         </div>
 
         {/* Order Tape (collapsible) */}
@@ -244,9 +268,19 @@ export default function App() {
           <TradesTable />
         </div>
 
+        {/* Historical Data Explorer */}
+        <div className="mb-4">
+          <HistoricalChart />
+        </div>
+
         {/* Backtesting */}
         <div className="mb-4" data-section="backtest">
           <BacktestPanel />
+        </div>
+
+        {/* Strategy Builder */}
+        <div className="mb-4">
+          <StrategyBuilder />
         </div>
       </main>
 

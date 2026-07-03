@@ -11,6 +11,8 @@ interface Analytics {
   best_trade_pct: string;
   worst_trade: string;
   worst_trade_pct: string;
+  sharpe_ratio: string;
+  sortino_ratio: string;
 }
 
 export default function AnalyticsCard() {
@@ -43,6 +45,16 @@ export default function AnalyticsCard() {
   const winRate = parseFloat(data.win_rate);
   const profitFactor = data.profit_factor === "∞" ? 999 : parseFloat(data.profit_factor);
 
+  const sharpeVal = data.sharpe_ratio === "N/A" ? null : parseFloat(data.sharpe_ratio);
+  const sortinoVal = data.sortino_ratio === "N/A" ? null : parseFloat(data.sortino_ratio);
+
+  const ratioColor = (val: number | null) => {
+    if (val === null) return "text-gray-400";
+    if (val > 1) return "text-green-400";
+    if (val >= 0) return "text-yellow-400";
+    return "text-red-400";
+  };
+
   return (
     <div className="bg-gray-800 rounded-lg p-5 border border-gray-700">
       <div className="flex items-center justify-between mb-4">
@@ -58,7 +70,7 @@ export default function AnalyticsCard() {
           📥 Export
         </a>
       </div>
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         <Metric label="Total Trades" value={data.total_trades} />
         <Metric
           label="Win Rate"
@@ -82,6 +94,16 @@ export default function AnalyticsCard() {
           label="Worst Trade"
           value={`₹${data.worst_trade} (${data.worst_trade_pct}%)`}
           color="text-red-400"
+        />
+        <Metric
+          label="Sharpe Ratio"
+          value={data.sharpe_ratio}
+          color={ratioColor(sharpeVal)}
+        />
+        <Metric
+          label="Sortino Ratio"
+          value={data.sortino_ratio}
+          color={ratioColor(sortinoVal)}
         />
       </div>
     </div>

@@ -79,6 +79,36 @@ def compute_analytics(trades: list[dict[str, Any]], initial_capital: float) -> d
             worst_pnl = pnl
             worst_pct = pct
 
+    # Sharpe Ratio and Sortino Ratio
+    # Use 6% annual risk-free rate (Indian T-bills) → daily = 0.06/252
+    sharpe_ratio_str = "N/A"
+    sortino_ratio_str = "N/A"
+
+    if len(closed_trades) >= 2:
+        daily_rf = Decimal("0.06") / Decimal("252")  # ~0.000238
+        returns = [Decimal(str(t["pnl"])) / (Decimal(str(t["qty"])) * Decimal(str(t["price"])))
+                   for t in closed_trades if t["qty"] > 0 and t["price"] > 0]
+
+        if len(returns) >= 2:
+            mean_return = sum(returns) / Decimal(len(returns))
+
+            # Standard deviation of all returns (for Sharpe)
+            variance = sum((r - mean_return) ** 2 for r in returns) / Decimal(len(returns) - 1)
+            std_dev = variance.sqrt() if variance > 0 else Decimal("0")
+
+            if std_dev > 0:
+                sharpe = (mean_return - daily_rf) / std_dev
+                sharpe_ratio_str = str(sharpe.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
+            # Downside deviation (for Sortino) — only negative returns
+            negative_returns = [r for r in returns if r < 0]
+            if negative_returns:
+                downside_variance = sum(r ** 2 for r in negative_returns) / Decimal(len(negative_returns))
+                downside_dev = downside_variance.sqrt() if downside_variance > 0 else Decimal("0")
+                if downside_dev > 0:
+                    sortino = (mean_return - daily_rf) / downside_dev
+                    sortino_ratio_str = str(sortino.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
+
     return {
         "total_trades": str(total_trades),
         "win_rate": str(win_rate.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
@@ -90,4 +120,6 @@ def compute_analytics(trades: list[dict[str, Any]], initial_capital: float) -> d
         "best_trade_pct": str(best_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
         "worst_trade": str(worst_pnl.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
         "worst_trade_pct": str(worst_pct.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)),
+        "sharpe_ratio": sharpe_ratio_str,
+        "sortino_ratio": sortino_ratio_str,
     }
