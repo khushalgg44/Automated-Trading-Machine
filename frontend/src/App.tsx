@@ -22,6 +22,7 @@ import PnLCalendar from "./components/PnLCalendar";
 import CorrelationMatrix from "./components/CorrelationMatrix";
 import PortfolioComparison from "./components/PortfolioComparison";
 import StrategyBuilder from "./components/StrategyBuilder";
+import RLAgent from "./components/RLAgent";
 import { usePolling } from "./hooks/usePolling";
 import { useTheme } from "./hooks/useTheme";
 import { Prices } from "./types";
@@ -210,6 +211,7 @@ export default function App() {
         {/* ═══ RESEARCH TAB ═══ */}
         {activeTab === "research" && (
           <>
+            <div className="mb-4"><RLAgent /></div>
             <div className="mb-4" data-section="backtest"><BacktestPanel /></div>
             <div className="mb-4"><StrategyBuilder /></div>
           </>

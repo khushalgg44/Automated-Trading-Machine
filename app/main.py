@@ -1156,3 +1156,75 @@ async def create_custom_strategy(body: StrategyBuilderRequest):
 
     event_bus.log_custom(Events.STRATEGY_STARTED, f"Custom strategy '{name}' created with {len(body.rules)} rules")
     return {"status": "created", "name": name, "rules_count": len(body.rules)}
+
+
+# ─── RL Agent Endpoints ────────────────────────────────────────────────────────
+
+class RLTrainRequest(BaseModel):
+    symbol: str
+    timesteps: int = 20000
+
+
+@app.post("/rl/train")
+async def train_rl(body: RLTrainRequest):
+    """Train an RL agent on historical data for a symbol."""
+    from app.core.strategy.rl_agent import train_rl_agent
+    from app.core.backtest.data_loader import load_csv
+
+    symbol = body.symbol.upper()
+
+    # Try to get prices from historical data files
+    data_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data")
+    prices = []
+
+    # Check for CSV files
+    for filename in os.listdir(data_dir):
+        if symbol.lower() in filename.lower() and filename.endswith(".csv"):
+            candles = load_csv(os.path.join(data_dir, filename))
+            prices = [c["close"] for c in candles]
+            break
+
+    if not prices or len(prices) < 50:
+        raise HTTPException(status_code=400, detail=f"Not enough historical data for {symbol}. Need at least 50 candles.")
+
+    try:
+        result = train_rl_agent(prices, symbol, timesteps=body.timesteps)
+        event_bus.log_custom("RL_TRAINED", f"RL agent trained for {symbol}: {result['final_return_pct']}% return, {result['trades']} trades")
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
+
+
+@app.post("/rl/deploy/{symbol}")
+async def deploy_rl(symbol: str):
+    """Deploy a trained RL agent as a live strategy."""
+    from app.core.strategy.rl_agent import RLAgentStrategy, load_rl_model
+
+    symbol = symbol.upper()
+    model = load_rl_model(symbol)
+    if not model:
+        raise HTTPException(status_code=404, detail=f"No trained model for {symbol}. Train first via POST /rl/train")
+
+    # Register and start
+    strategy = RLAgentStrategy(symbol=symbol, qty=5)
+    strategy_registry.register(strategy)
+    await strategy_registry.start("rl_agent")
+    event_bus.log_custom(Events.STRATEGY_STARTED, f"RL Agent deployed for {symbol}")
+    return {"status": "deployed", "symbol": symbol, "strategy": "rl_agent"}
+
+
+@app.get("/rl/status")
+async def rl_status():
+    """Check if RL model exists and its status."""
+    from app.core.strategy.rl_agent import _MODELS_DIR
+    models = []
+    if os.path.exists(_MODELS_DIR):
+        for f in os.listdir(_MODELS_DIR):
+            if f.endswith(".zip"):
+                models.append(f.replace("rl_", "").replace(".zip", "").upper())
+    
+    rl_strategy = strategy_registry.get("rl_agent")
+    return {
+        "trained_models": models,
+        "deployed": rl_strategy.is_active if rl_strategy else False,
+    }

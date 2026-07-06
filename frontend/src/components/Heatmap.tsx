@@ -21,7 +21,15 @@ export default function Heatmap() {
         initialized.current = true;
       }
     }
-  }, [prices]);
+    // Also capture start price for newly added symbols
+    if (prices && initialized.current) {
+      for (const sym of displaySymbols) {
+        if (prices[sym] && !sessionStartPrices[sym]) {
+          setSessionStartPrices(prev => ({ ...prev, [sym]: prices[sym] }));
+        }
+      }
+    }
+  }, [prices, displaySymbols]);
 
   if (!prices) return null;
 

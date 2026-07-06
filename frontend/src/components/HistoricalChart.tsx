@@ -84,9 +84,18 @@ export default function HistoricalChart() {
     if (query.length < 2) { setSearchResults([]); return; }
     try {
       const res = await fetch(`/api/historical/search/${query}`);
-      const data = await res.json();
-      if (Array.isArray(data)) setSearchResults(data);
-    } catch { /* silent */ }
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data)) { setSearchResults(data); return; }
+      }
+    } catch { /* fallback below */ }
+    // Fallback: search from universe list when Zerodha unavailable
+    const upper = query.toUpperCase();
+    const fallback = ["RELIANCE", "TCS", "INFY", "HDFCBANK", "SBIN", "WIPRO", "ICICIBANK", "BHARTIARTL",
+      "TATAMOTORS", "BAJFINANCE", "HCLTECH", "ITC", "AXISBANK", "KOTAKBANK", "LT", "MARUTI"]
+      .filter(s => s.includes(upper))
+      .map(s => ({ symbol: s, name: s, token: "" }));
+    setSearchResults(fallback);
   };
 
   const selectSymbol = (sym: string) => {
