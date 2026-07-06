@@ -60,7 +60,7 @@ export default function RLAgent() {
   };
 
   const progress = status?.training_progress;
-  const isTrainingOnServer = progress?.status === "training" || progress?.status === "starting";
+  const isTrainingOnServer = training && progress && (progress.status === "training" || progress.status === "starting");
 
   return (
     <div className="bg-gray-800 rounded-lg p-5 border border-gray-700">
@@ -101,7 +101,7 @@ export default function RLAgent() {
       </div>
 
       {/* Progress Bar */}
-      {training && progress && (
+      {training && progress && progress.percent < 100 && (
         <div className="mb-4">
           <div className="flex justify-between text-xs text-gray-400 mb-1">
             <span>Training {progress.symbol}...</span>

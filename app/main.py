@@ -153,6 +153,8 @@ def _get_strategy_config(name: str) -> dict:
         return {"period": s.period, "oversold": s.oversold, "overbought": s.overbought}
     if name == "bollinger_bands":
         return {"period": s.period, "std_dev": s.std_dev_multiplier}
+    if name == "rl_agent":
+        return {"symbol": s.symbol, "type": "PPO Reinforcement Learning"}
     return {}
 
 

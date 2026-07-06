@@ -170,14 +170,16 @@ class ProgressCallback:
         self.symbol = symbol
         self.total = total_timesteps
         self.calls = 0
+        _update_progress(symbol, 0, total_timesteps, "training")
 
     def __call__(self, locals_dict, globals_dict):
         self.calls += 1
-        if self.calls % 50 == 0:  # Update every 50 steps
-            current = locals_dict.get("self", None)
-            if current:
-                num_timesteps = getattr(current, "num_timesteps", self.calls * 256)
+        if self.calls % 10 == 0:  # Update every 10 calls
+            try:
+                num_timesteps = locals_dict.get("self").num_timesteps
                 _update_progress(self.symbol, min(num_timesteps, self.total), self.total)
+            except Exception:
+                _update_progress(self.symbol, self.calls * 128, self.total)
         return True
 
 

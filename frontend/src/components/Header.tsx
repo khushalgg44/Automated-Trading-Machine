@@ -45,24 +45,22 @@ export default function Header({ theme, onToggleTheme, recentEventCount, hasReje
         <span className="text-xs text-gray-400 bg-gray-700 px-2 py-0.5 rounded">
           PAPER
         </span>
-        {/* Zerodha badge */}
-        {isZerodhaMode && (
-          zerodhaConnected ? (
-            <span className="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-800">
-              ✓ Zerodha
-            </span>
-          ) : (
-            <button
-              onClick={handleZerodhaLogin}
-              className="text-xs bg-orange-900/40 text-orange-400 px-2 py-0.5 rounded border border-orange-800 hover:bg-orange-900/60"
-            >
-              ⚠️ Login
-            </button>
-          )
+        {/* Zerodha badge — always show login option */}
+        {zerodhaConnected ? (
+          <span className="text-xs bg-green-900/40 text-green-400 px-2 py-0.5 rounded border border-green-800">
+            ✓ Zerodha
+          </span>
+        ) : (
+          <button
+            onClick={handleZerodhaLogin}
+            className="text-xs bg-orange-900/40 text-orange-400 px-2 py-0.5 rounded border border-orange-800 hover:bg-orange-900/60"
+          >
+            ⚠️ Login
+          </button>
         )}
         {/* Show fallback indicator */}
-        {isZerodhaMode && !zerodhaConnected && zerodhaStatus?.data_source === "mock" && (
-          <span className="text-xs text-yellow-400">Mock (Zerodha unavailable)</span>
+        {!zerodhaConnected && zerodhaStatus?.data_source === "mock" && isZerodhaMode && (
+          <span className="text-xs text-yellow-400">Mock</span>
         )}
         {/* Demo button */}
         <button
