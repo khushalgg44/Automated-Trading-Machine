@@ -1,11 +1,16 @@
-"""Reinforcement Learning Trading Agent.
+"""Reinforcement Learning Trading Agent — Improved Version.
 
-Uses a PPO (Proximal Policy Optimization) agent trained on historical price data.
-The agent learns when to BUY, SELL, or HOLD based on market state features.
+Improvements:
+1. Better reward: penalizes inactivity, rewards trading
+2. Supports more training data (Zerodha historical API)
+3. Exposes agent confidence/thinking for UI display
+4. Per-strategy portfolio isolation (tracks its own positions)
+6. Training progress tracking via file
 """
 
 import os
 import math
+import json
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -16,10 +21,10 @@ from app.core.strategy.base_strategy import BaseStrategy, Signal
 from app.core.market.watchlist import watchlist
 
 
-# ─── Trading Environment for Training ─────────────────────────────────────────
+# ─── Trading Environment ───────────────────────────────────────────────────────
 
 class TradingEnv(gym.Env):
-    """Custom Gym environment for training the RL agent on historical data."""
+    """Custom Gym environment with improved reward function."""
 
     metadata = {"render_modes": []}
 
@@ -27,91 +32,83 @@ class TradingEnv(gym.Env):
         super().__init__()
         self.prices = prices
         self.window_size = window_size
-
-        # Actions: 0=HOLD, 1=BUY, 2=SELL
-        self.action_space = spaces.Discrete(3)
-
-        # Observation: window of normalized price changes + RSI + position flag
-        # Features: window_size price returns + RSI + EMA ratio + position (0/1) + unrealized_pnl
+        self.action_space = spaces.Discrete(3)  # HOLD, BUY, SELL
         self.observation_space = spaces.Box(
             low=-np.inf, high=np.inf,
             shape=(window_size + 4,), dtype=np.float32
         )
-
         self.reset()
 
     def reset(self, seed=None, options=None):
         super().reset(seed=seed)
         self.current_step = self.window_size
-        self.position = 0  # 0=flat, 1=long
+        self.position = 0
         self.entry_price = 0.0
         self.total_reward = 0.0
         self.trades = 0
+        self.hold_count = 0
         return self._get_obs(), {}
 
     def _get_obs(self) -> np.ndarray:
-        # Price returns (normalized)
         window = self.prices[self.current_step - self.window_size:self.current_step]
-        returns = [(window[i] - window[i-1]) / window[i-1] for i in range(1, len(window))]
-        # Pad to window_size
+        returns = [(window[i] - window[i-1]) / window[i-1] if window[i-1] != 0 else 0 for i in range(1, len(window))]
         while len(returns) < self.window_size:
             returns.insert(0, 0.0)
 
-        # RSI (14 period)
-        rsi = self._compute_rsi() / 100.0  # normalize to 0-1
-
-        # EMA ratio
+        rsi = self._compute_rsi() / 100.0
         ema_fast = self._ema(9)
         ema_slow = self._ema(21)
         ema_ratio = (ema_fast / ema_slow - 1.0) * 100 if ema_slow > 0 else 0.0
-
-        # Position flag
         pos_flag = float(self.position)
-
-        # Unrealized PnL (normalized)
         current_price = self.prices[self.current_step - 1]
         unrealized = ((current_price - self.entry_price) / self.entry_price * 100) if self.position and self.entry_price > 0 else 0.0
 
-        obs = np.array(returns + [rsi, ema_ratio, pos_flag, unrealized], dtype=np.float32)
-        return obs
+        return np.array(returns + [rsi, ema_ratio, pos_flag, unrealized], dtype=np.float32)
 
     def step(self, action: int):
         current_price = self.prices[self.current_step - 1]
         reward = 0.0
-        terminated = False
 
         if action == 1 and self.position == 0:  # BUY
             self.position = 1
             self.entry_price = current_price
-            reward = -0.001  # small cost for trading
+            self.hold_count = 0
+            reward = 0.1  # Small reward for taking action (encourages trading)
 
         elif action == 2 and self.position == 1:  # SELL
             pnl_pct = (current_price - self.entry_price) / self.entry_price
-            reward = pnl_pct * 100  # reward proportional to profit %
+            reward = pnl_pct * 200  # Amplified reward for profitable trades
+            if pnl_pct > 0:
+                reward *= 1.5  # Extra bonus for profits
             self.position = 0
             self.entry_price = 0.0
             self.trades += 1
+            self.hold_count = 0
 
         elif action == 0:  # HOLD
-            if self.position == 1:
-                # Small reward/penalty for holding based on price movement
-                if self.current_step < len(self.prices):
-                    next_ret = (current_price - self.prices[self.current_step - 2]) / self.prices[self.current_step - 2]
-                    reward = next_ret * 10  # incentivize holding during uptrends
+            self.hold_count += 1
+            if self.position == 0:
+                # Penalize holding flat for too long — force the agent to trade
+                if self.hold_count > 10:
+                    reward = -0.05 * (self.hold_count - 10)  # Increasing penalty
+            else:
+                # Holding a position: reward/penalize based on price movement
+                if self.current_step > 1:
+                    price_change = (current_price - self.prices[self.current_step - 2]) / self.prices[self.current_step - 2]
+                    reward = price_change * 50  # Reward holding during uptrends
 
         self.current_step += 1
         self.total_reward += reward
+        terminated = self.current_step >= len(self.prices)
 
-        if self.current_step >= len(self.prices):
-            terminated = True
-            # Force close any open position
-            if self.position == 1:
-                pnl_pct = (self.prices[-1] - self.entry_price) / self.entry_price
-                reward += pnl_pct * 100
-                self.position = 0
+        if terminated and self.position == 1:
+            pnl_pct = (self.prices[-1] - self.entry_price) / self.entry_price
+            reward += pnl_pct * 200
+            self.position = 0
+            self.trades += 1
 
-        truncated = False
-        return self._get_obs() if not terminated else np.zeros(self.observation_space.shape, dtype=np.float32), reward, terminated, truncated, {}
+        obs = self._get_obs() if not terminated else np.zeros(self.observation_space.shape, dtype=np.float32)
+        return obs, reward, terminated, False, {}
 
     def _compute_rsi(self, period: int = 14) -> float:
         if self.current_step < period + 1:
@@ -123,8 +120,7 @@ class TradingEnv(gym.Env):
         avg_loss = sum(losses[-period:]) / period
         if avg_loss == 0:
             return 100.0
-        rs = avg_gain / avg_loss
-        return 100.0 - (100.0 / (1.0 + rs))
+        return 100.0 - (100.0 / (1.0 + avg_gain / avg_loss))
 
     def _ema(self, period: int) -> float:
         if self.current_step < period:
@@ -137,60 +133,115 @@ class TradingEnv(gym.Env):
         return ema
 
 
-# ─── Training Function ─────────────────────────────────────────────────────────
+# ─── Training with Progress ────────────────────────────────────────────────────
 
 _MODELS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "models")
+_PROGRESS_FILE = os.path.join(_MODELS_DIR, "training_progress.json")
+
+
+def _update_progress(symbol: str, current: int, total: int, status: str = "training"):
+    """Write training progress to a file for the frontend to poll."""
+    os.makedirs(_MODELS_DIR, exist_ok=True)
+    progress = {
+        "symbol": symbol,
+        "current_step": current,
+        "total_steps": total,
+        "percent": round((current / total) * 100) if total > 0 else 0,
+        "status": status,
+    }
+    with open(_PROGRESS_FILE, "w") as f:
+        json.dump(progress, f)
+
+
+def get_training_progress() -> dict | None:
+    """Read current training progress."""
+    if os.path.exists(_PROGRESS_FILE):
+        try:
+            with open(_PROGRESS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return None
+
+
+class ProgressCallback:
+    """Callback to track training progress."""
+    def __init__(self, symbol: str, total_timesteps: int):
+        self.symbol = symbol
+        self.total = total_timesteps
+        self.calls = 0
+
+    def __call__(self, locals_dict, globals_dict):
+        self.calls += 1
+        if self.calls % 50 == 0:  # Update every 50 steps
+            current = locals_dict.get("self", None)
+            if current:
+                num_timesteps = getattr(current, "num_timesteps", self.calls * 256)
+                _update_progress(self.symbol, min(num_timesteps, self.total), self.total)
+        return True
 
 
 def train_rl_agent(prices: list[float], symbol: str, timesteps: int = 20000) -> dict[str, Any]:
-    """Train a PPO agent on historical price data.
-
-    Args:
-        prices: list of closing prices
-        symbol: stock symbol (for model filename)
-        timesteps: training steps (more = better but slower)
-
-    Returns:
-        Training result stats
-    """
+    """Train a PPO agent on historical price data with progress tracking."""
     from stable_baselines3 import PPO
 
     os.makedirs(_MODELS_DIR, exist_ok=True)
+    _update_progress(symbol, 0, timesteps, "starting")
 
     env = TradingEnv(prices)
-    model = PPO("MlpPolicy", env, verbose=0, learning_rate=0.0003, n_steps=256, batch_size=64)
-    model.learn(total_timesteps=timesteps)
+
+    model = PPO(
+        "MlpPolicy", env, verbose=0,
+        learning_rate=0.0003,
+        n_steps=128,
+        batch_size=64,
+        n_epochs=10,
+        gamma=0.99,
+        clip_range=0.2,
+    )
+
+    # Train with progress callback
+    callback = ProgressCallback(symbol, timesteps)
+    model.learn(total_timesteps=timesteps, callback=callback)
 
     # Save model
     model_path = os.path.join(_MODELS_DIR, f"rl_{symbol.lower()}")
     model.save(model_path)
+    _update_progress(symbol, timesteps, timesteps, "evaluating")
 
-    # Evaluate: run one episode and track results
+    # Evaluate
     eval_env = TradingEnv(prices)
     obs, _ = eval_env.reset()
     total_reward = 0
-    trades = 0
-    equity_curve = [1.0]  # normalized
+    actions_taken = {"BUY": 0, "SELL": 0, "HOLD": 0}
+    equity_curve = [1.0]
     capital = 1.0
 
     while True:
         action, _ = model.predict(obs, deterministic=True)
-        obs, reward, terminated, truncated, _ = eval_env.step(int(action))
+        action = int(action)
+        if action == 0: actions_taken["HOLD"] += 1
+        elif action == 1: actions_taken["BUY"] += 1
+        elif action == 2: actions_taken["SELL"] += 1
+
+        obs, reward, terminated, truncated, _ = eval_env.step(action)
         total_reward += reward
         capital += reward / 100
         equity_curve.append(capital)
         if terminated or truncated:
-            trades = eval_env.trades
             break
+
+    _update_progress(symbol, timesteps, timesteps, "complete")
 
     return {
         "symbol": symbol,
         "model_path": model_path,
         "timesteps": timesteps,
         "total_reward": round(total_reward, 2),
-        "trades": trades,
+        "trades": eval_env.trades,
         "final_return_pct": round((capital - 1.0) * 100, 2),
-        "equity_curve": equity_curve[::max(1, len(equity_curve) // 100)],  # downsample to 100 points
+        "actions": actions_taken,
+        "equity_curve": equity_curve[::max(1, len(equity_curve) // 100)],
     }
 
 
@@ -203,10 +254,10 @@ def load_rl_model(symbol: str):
     return None
 
 
-# ─── Live Strategy ─────────────────────────────────────────────────────────────
+# ─── Live Strategy with Isolated Portfolio + Confidence Display ────────────────
 
 class RLAgentStrategy(BaseStrategy):
-    """Reinforcement Learning agent running as a live strategy."""
+    """RL agent with its own isolated position tracking and confidence reporting."""
 
     name = "rl_agent"
 
@@ -216,8 +267,10 @@ class RLAgentStrategy(BaseStrategy):
         self.qty = qty
         self._model = None
         self._prices: list[float] = []
-        self._position = 0  # 0=flat, 1=long
+        self._own_position = 0  # Isolated: only tracks RL agent's own position
+        self._own_entry_price = 0.0
         self._window_size = 20
+        self._last_confidence: dict[str, float] = {}  # action -> probability
 
     async def _on_start(self) -> None:
         self._model = load_rl_model(self.symbol)
@@ -252,44 +305,71 @@ class RLAgentStrategy(BaseStrategy):
         if len(self._prices) < self._window_size + 5:
             return None
 
-        # Keep sliding window
         if len(self._prices) > 200:
             self._prices = self._prices[-200:]
 
-        # Build observation
-        obs = self._build_obs()
-        action, _ = self._model.predict(obs, deterministic=True)
+        obs = self._build_obs(price)
 
-        if action == 1 and self._position == 0:  # BUY
-            self._position = 1
+        # Get action AND probabilities (confidence)
+        action, _ = self._model.predict(obs, deterministic=True)
+        action = int(action)
+
+        # Get action probabilities for confidence display
+        try:
+            obs_tensor = self._model.policy.obs_to_tensor(obs.reshape(1, -1))[0]
+            dist = self._model.policy.get_distribution(obs_tensor)
+            probs = dist.distribution.probs.detach().numpy()[0]
+            self._last_confidence = {
+                "HOLD": round(float(probs[0]) * 100, 1),
+                "BUY": round(float(probs[1]) * 100, 1),
+                "SELL": round(float(probs[2]) * 100, 1),
+            }
+        except Exception:
+            self._last_confidence = {}
+
+        # Isolated position tracking
+        if action == 1 and self._own_position == 0:  # BUY
+            self._own_position = 1
+            self._own_entry_price = price
+            confidence = self._last_confidence.get("BUY", 0)
             return Signal(
                 direction=Signal.BUY,
                 symbol=self.symbol,
                 quantity=self.qty,
-                reason="RL Agent: BUY signal (learned pattern detected)",
+                reason=f"RL Agent BUY (confidence: {confidence}%)",
             )
-        elif action == 2 and self._position == 1:  # SELL
-            self._position = 0
+        elif action == 2 and self._own_position == 1:  # SELL
+            pnl_pct = ((price - self._own_entry_price) / self._own_entry_price * 100) if self._own_entry_price > 0 else 0
+            self._own_position = 0
+            self._own_entry_price = 0.0
+            confidence = self._last_confidence.get("SELL", 0)
             return Signal(
                 direction=Signal.SELL,
                 symbol=self.symbol,
                 quantity=self.qty,
-                reason="RL Agent: SELL signal (exit pattern detected)",
+                reason=f"RL Agent SELL (confidence: {confidence}%, P&L: {pnl_pct:+.2f}%)",
             )
 
         return None
 
-    def _build_obs(self) -> np.ndarray:
+    def get_confidence(self) -> dict[str, Any]:
+        """Return current agent state for UI display."""
+        return {
+            "symbol": self.symbol,
+            "position": "LONG" if self._own_position == 1 else "FLAT",
+            "entry_price": self._own_entry_price,
+            "confidence": self._last_confidence,
+        }
+
+    def _build_obs(self, current_price: float) -> np.ndarray:
         prices = self._prices
         n = len(prices)
         window = prices[n - self._window_size:n]
 
-        # Returns
-        returns = [(window[i] - window[i-1]) / window[i-1] for i in range(1, len(window))]
+        returns = [(window[i] - window[i-1]) / window[i-1] if window[i-1] != 0 else 0 for i in range(1, len(window))]
         while len(returns) < self._window_size:
             returns.insert(0, 0.0)
 
-        # RSI
         rsi = 50.0
         if n >= 15:
             gains = [max(0, prices[n-14+i] - prices[n-15+i]) for i in range(14)]
@@ -301,13 +381,12 @@ class RLAgentStrategy(BaseStrategy):
             else:
                 rsi = 100.0
 
-        # EMA ratio
         ema_fast = self._ema(prices, 9)
         ema_slow = self._ema(prices, 21)
         ema_ratio = (ema_fast / ema_slow - 1.0) * 100 if ema_slow > 0 else 0.0
 
-        pos_flag = float(self._position)
-        unrealized = 0.0
+        pos_flag = float(self._own_position)
+        unrealized = ((current_price - self._own_entry_price) / self._own_entry_price * 100) if self._own_position and self._own_entry_price > 0 else 0.0
 
         return np.array(returns + [rsi / 100.0, ema_ratio, pos_flag, unrealized], dtype=np.float32)
 

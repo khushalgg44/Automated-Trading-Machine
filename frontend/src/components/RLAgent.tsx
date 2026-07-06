@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { usePolling } from "../hooks/usePolling";
 
 interface TrainResult {
@@ -7,12 +7,15 @@ interface TrainResult {
   total_reward: number;
   trades: number;
   final_return_pct: number;
+  actions: { BUY: number; SELL: number; HOLD: number };
   equity_curve: number[];
 }
 
 interface RLStatus {
   trained_models: string[];
   deployed: boolean;
+  confidence: { symbol?: string; position?: string; entry_price?: number; confidence?: Record<string, number> };
+  training_progress: { symbol: string; current_step: number; total_steps: number; percent: number; status: string } | null;
 }
 
 export default function RLAgent() {
@@ -23,7 +26,8 @@ export default function RLAgent() {
   const [result, setResult] = useState<TrainResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: status } = usePolling<RLStatus>("/api/rl/status", 5000);
+  // Poll status (includes progress during training)
+  const { data: status } = usePolling<RLStatus>("/api/rl/status", training ? 1000 : 5000);
 
   const handleTrain = async () => {
     setTraining(true);
@@ -55,6 +59,9 @@ export default function RLAgent() {
     finally { setDeploying(false); }
   };
 
+  const progress = status?.training_progress;
+  const isTrainingOnServer = progress?.status === "training" || progress?.status === "starting";
+
   return (
     <div className="bg-gray-800 rounded-lg p-5 border border-gray-700">
       <div className="flex items-center gap-2 mb-4">
@@ -67,7 +74,7 @@ export default function RLAgent() {
       </div>
 
       <p className="text-xs text-gray-500 mb-4">
-        Train a PPO agent on historical data. The agent learns to BUY, SELL, or HOLD by maximizing profit through trial and error.
+        Train a PPO agent on historical data. The agent learns BUY/SELL/HOLD by maximizing profit through trial and error. Penalized for inactivity.
       </p>
 
       {/* Training Controls */}
@@ -84,6 +91,7 @@ export default function RLAgent() {
             <option value={10000}>10K (Fast, ~1 min)</option>
             <option value={20000}>20K (Normal, ~2 min)</option>
             <option value={50000}>50K (Better, ~5 min)</option>
+            <option value={100000}>100K (Best, ~10 min)</option>
           </select>
         </div>
         <button onClick={handleTrain} disabled={training}
@@ -92,6 +100,23 @@ export default function RLAgent() {
         </button>
       </div>
 
+      {/* Progress Bar */}
+      {training && progress && (
+        <div className="mb-4">
+          <div className="flex justify-between text-xs text-gray-400 mb-1">
+            <span>Training {progress.symbol}...</span>
+            <span>{progress.percent}%</span>
+          </div>
+          <div className="h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-purple-500 rounded-full transition-all duration-500"
+              style={{ width: `${progress.percent}%` }} />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Step {progress.current_step.toLocaleString()} / {progress.total_steps.toLocaleString()}
+          </p>
+        </div>
+      )}
+
       {error && <p className="text-red-400 text-xs mb-3">{error}</p>}
 
       {/* Training Result */}
@@ -99,9 +124,9 @@ export default function RLAgent() {
         <div className="bg-gray-700/30 rounded-lg p-4 mb-4">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-xs bg-purple-900/40 text-purple-400 px-2 py-0.5 rounded font-bold">Training Complete</span>
-            <span className="text-xs text-gray-400">{result.symbol} • {result.timesteps} steps</span>
+            <span className="text-xs text-gray-400">{result.symbol} • {result.timesteps.toLocaleString()} steps</span>
           </div>
-          <div className="grid grid-cols-3 gap-3 mb-3">
+          <div className="grid grid-cols-4 gap-3 mb-3">
             <div className="bg-gray-900/50 rounded p-2">
               <p className="text-xs text-gray-500">Return</p>
               <p className={`text-sm font-mono font-bold ${result.final_return_pct >= 0 ? "text-green-400" : "text-red-400"}`}>
@@ -113,22 +138,43 @@ export default function RLAgent() {
               <p className="text-sm font-mono font-bold text-white">{result.trades}</p>
             </div>
             <div className="bg-gray-900/50 rounded p-2">
-              <p className="text-xs text-gray-500">Total Reward</p>
-              <p className="text-sm font-mono font-bold text-white">{result.total_reward}</p>
+              <p className="text-xs text-gray-500">Buy Actions</p>
+              <p className="text-sm font-mono font-bold text-green-400">{result.actions.BUY}</p>
+            </div>
+            <div className="bg-gray-900/50 rounded p-2">
+              <p className="text-xs text-gray-500">Sell Actions</p>
+              <p className="text-sm font-mono font-bold text-red-400">{result.actions.SELL}</p>
             </div>
           </div>
 
-          {/* Mini equity curve */}
+          {/* Equity curve */}
           {result.equity_curve.length > 1 && (
-            <div className="h-16">
+            <div className="h-16 mb-3">
               <MiniCurve data={result.equity_curve} />
             </div>
           )}
 
           <button onClick={() => handleDeploy(result.symbol)} disabled={deploying}
-            className="mt-3 px-4 py-2 rounded font-bold text-sm bg-green-600 hover:bg-green-500 text-white disabled:opacity-50">
+            className="px-4 py-2 rounded font-bold text-sm bg-green-600 hover:bg-green-500 text-white disabled:opacity-50">
             {deploying ? "Deploying..." : "🚀 Deploy as Live Strategy"}
           </button>
+        </div>
+      )}
+
+      {/* Live Confidence Display */}
+      {status?.deployed && status.confidence?.confidence && (
+        <div className="bg-gray-700/30 rounded-lg p-3 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-xs text-gray-400 font-medium">Agent Thinking ({status.confidence.symbol})</span>
+            <span className={`text-xs font-bold ${status.confidence.position === "LONG" ? "text-green-400" : "text-gray-400"}`}>
+              {status.confidence.position}
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <ConfBar label="HOLD" value={status.confidence.confidence.HOLD || 0} color="bg-gray-500" />
+            <ConfBar label="BUY" value={status.confidence.confidence.BUY || 0} color="bg-green-500" />
+            <ConfBar label="SELL" value={status.confidence.confidence.SELL || 0} color="bg-red-500" />
+          </div>
         </div>
       )}
 
@@ -151,8 +197,22 @@ export default function RLAgent() {
   );
 }
 
+function ConfBar({ label, value, color }: { label: string; value: number; color: string }) {
+  return (
+    <div className="flex-1">
+      <div className="flex justify-between text-xs mb-0.5">
+        <span className="text-gray-500">{label}</span>
+        <span className="text-gray-300 font-mono">{value}%</span>
+      </div>
+      <div className="h-1.5 bg-gray-700 rounded-full overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function MiniCurve({ data }: { data: number[] }) {
-  const width = 300;
+  const width = 400;
   const height = 60;
   const max = Math.max(...data);
   const min = Math.min(...data);

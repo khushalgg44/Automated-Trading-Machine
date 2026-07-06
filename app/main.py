@@ -1216,7 +1216,7 @@ async def deploy_rl(symbol: str):
 @app.get("/rl/status")
 async def rl_status():
     """Check if RL model exists and its status."""
-    from app.core.strategy.rl_agent import _MODELS_DIR
+    from app.core.strategy.rl_agent import _MODELS_DIR, get_training_progress
     models = []
     if os.path.exists(_MODELS_DIR):
         for f in os.listdir(_MODELS_DIR):
@@ -1224,7 +1224,15 @@ async def rl_status():
                 models.append(f.replace("rl_", "").replace(".zip", "").upper())
     
     rl_strategy = strategy_registry.get("rl_agent")
+    confidence = {}
+    if rl_strategy and hasattr(rl_strategy, "get_confidence"):
+        confidence = rl_strategy.get_confidence()
+
+    progress = get_training_progress()
+
     return {
         "trained_models": models,
         "deployed": rl_strategy.is_active if rl_strategy else False,
+        "confidence": confidence,
+        "training_progress": progress,
     }
